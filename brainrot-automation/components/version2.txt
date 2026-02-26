@@ -1,0 +1,525 @@
+"use client";
+
+import { useState, useEffect, useCallback } from 'react';
+
+const OPTIMAL_TIMES = [
+  { label: '9:00 AM UTC (Best for Asia)', value: '09:00' },
+  { label: '11:00 AM UTC (Morning peak)', value: '11:00' },
+  { label: '2:00 PM UTC (Afternoon peak)', value: '14:00' },
+  { label: '7:00 PM UTC (Evening peak ★)', value: '19:00' },
+  { label: '10:00 PM UTC (Night peak)', value: '22:00' },
+];
+
+export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [config, setConfig] = useState({
+    videosPerDay: 5,
+    uploadEnabled: true,
+    contentTypes: ['storytelling', 'dance', 'top5'],
+    preferredTime: '19:00',
+    voiceId: 'Rachel',
+  });
+  const [jobs, setJobs] = useState([]);
+  const [stats, setStats] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [generating, setGenerating] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [configRes, jobsRes, statsRes] = await Promise.all([
+        fetch('/api/config'),
+        fetch('/api/jobs'),
+        fetch('/api/stats'),
+      ]);
+      if (configRes.ok) {
+        const cfg = await configRes.json();
+        setConfig(prev => ({ ...prev, ...cfg }));
+      }
+      if (jobsRes.ok) {
+        const data = await jobsRes.json();
+        setJobs(data.jobs || []);
+      }
+      if (statsRes.ok) setStats(await statsRes.json());
+    } catch (err) {
+      console.error('Fetch error:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 15000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  async function saveConfig() {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      if (res.ok) showMessage('✅ Settings saved!', 'success');
+      else showMessage('❌ Failed to save', 'error');
+    } catch (err) {
+      showMessage('❌ Error: ' + err.message, 'error');
+    }
+    setLoading(false);
+  }
+
+  async function triggerGeneration() {
+    setGenerating(true);
+    showMessage('🎬 Starting video generation...', 'info');
+    try {
+      const res = await fetch('/api/trigger', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showMessage(`✅ Video created! ${data.youtubeUrl ? '→ ' + data.youtubeUrl : ''}`, 'success');
+        fetchData();
+      } else {
+        showMessage('❌ ' + (data.error || 'Generation failed'), 'error');
+      }
+    } catch (err) {
+      showMessage('❌ Error: ' + err.message, 'error');
+    }
+    setGenerating(false);
+  }
+
+  function showMessage(msg, type) {
+    setMessage({ text: msg, type });
+    setTimeout(() => setMessage(''), 5000);
+  }
+
+  const toggleContentType = (type) => {
+    setConfig(prev => ({
+      ...prev,
+      contentTypes: prev.contentTypes.includes(type)
+        ? prev.contentTypes.filter(t => t !== type)
+        : [...prev.contentTypes, type],
+    }));
+  };
+
+  const nextUpload = () => {
+    const [h, m] = (config.preferredTime || '19:00').split(':').map(Number);
+    const now = new Date();
+    const next = new Date();
+    next.setUTCHours(h, m, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const diff = next - now;
+    const hours = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    return `${hours}h ${mins}m`;
+  };
+
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: '📊' },
+    { id: 'settings', label: 'Settings', icon: '⚙️' },
+    { id: 'jobs', label: 'Jobs', icon: '📋' },
+    { id: 'api-keys', label: 'API Keys', icon: '🔑' },
+  ];
+
+  const messageBg = message.type === 'success'
+    ? 'bg-emerald-900/80 border-emerald-500/50 text-emerald-200'
+    : message.type === 'error'
+    ? 'bg-red-900/80 border-red-500/50 text-red-200'
+    : 'bg-blue-900/80 border-blue-500/50 text-blue-200';
+
+  return (
+    <>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        .fade-in { animation: fadeIn 0.4s ease both; }
+        .slide-up { animation: slideUp 0.4s ease both; }
+        .spin { animation: spin 1s linear infinite; }
+        .gradient-animate { background-size: 200% 200%; animation: gradientShift 4s ease infinite; }
+        .card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,0.15); }
+        .tab-indicator { transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
+        .btn-press:active { transform: scale(0.97); }
+        input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; background: #374151; outline: none; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #6366f1; cursor: pointer; box-shadow: 0 0 0 3px rgba(99,102,241,0.3); transition: box-shadow 0.2s; }
+        input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 6px rgba(99,102,241,0.3); }
+        select option { background: #1f2937; color: #e5e7eb; }
+        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #111827; } ::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }
+      `}</style>
+
+      <div className="min-h-screen bg-gray-950 text-gray-100" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+
+        {/* Ambient background glow */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl" />
+          <div className="absolute -top-20 right-1/4 w-72 h-72 bg-purple-600/8 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-600/8 rounded-full blur-3xl" />
+        </div>
+
+        {/* Header */}
+        <header className="relative border-b border-gray-800/80 bg-gray-900/80 backdrop-blur-xl sticky top-0 z-50">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xl shadow-lg shadow-indigo-500/30">
+                🧠
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-white tracking-tight">Brainrot Automation</h1>
+                <p className="text-xs text-gray-500">Automated YouTube Content Generator</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-6">
+              <HeaderStat label="Today" value={`${stats.todayVideos || 0} videos`} />
+              <div className="w-px h-8 bg-gray-800" />
+              <HeaderStat label="Success" value={`${stats.successRate || 0}%`} color="text-emerald-400" />
+              <div className="w-px h-8 bg-gray-800" />
+              <HeaderStat label="Next Upload" value={nextUpload()} color="text-indigo-400" />
+            </div>
+          </div>
+        </header>
+
+        {/* Toast message */}
+        {message && (
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-4 fade-in">
+            <div className={`border rounded-xl px-4 py-3 text-sm font-medium ${messageBg}`}>
+              {message.text}
+            </div>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-6">
+          <div className="flex gap-1 bg-gray-900/60 backdrop-blur-sm rounded-2xl p-1 border border-gray-800/60 w-fit">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 btn-press flex items-center gap-2
+                  ${activeTab === tab.id
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'}`}
+              >
+                <span className="hidden sm:inline">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Main content */}
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 pb-16">
+
+          {/* OVERVIEW TAB */}
+          {activeTab === 'overview' && (
+            <div className="space-y-5 slide-up">
+              {/* Stat cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <StatCard label="Total Videos" value={stats.totalVideos || 0} icon="🎬" color="from-blue-500/20 to-blue-600/5" iconBg="bg-blue-500/20" />
+                <StatCard label="Today's Videos" value={`${stats.todayVideos || 0} / ${config.videosPerDay}`} icon="📅" color="from-purple-500/20 to-purple-600/5" iconBg="bg-purple-500/20" />
+                <StatCard label="Success Rate" value={`${stats.successRate || 0}%`} icon="✅" color="from-emerald-500/20 to-emerald-600/5" iconBg="bg-emerald-500/20" />
+              </div>
+
+              {/* Manual generation */}
+              <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/60 rounded-2xl p-6 card-hover">
+                <h2 className="text-base font-semibold text-white mb-1">🚀 Manual Generation</h2>
+                <p className="text-sm text-gray-400 mb-5">Trigger a video generation right now. The automation also runs on its own schedule.</p>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={triggerGeneration}
+                    disabled={generating}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm text-white transition-all duration-200 btn-press
+                      bg-gradient-to-r from-indigo-600 to-purple-600 gradient-animate hover:shadow-lg hover:shadow-indigo-500/30
+                      ${generating ? 'opacity-60 cursor-not-allowed' : 'hover:scale-105'}`}
+                  >
+                    {generating ? (
+                      <><span className="spin inline-block">⚙️</span> Generating...</>
+                    ) : (
+                      '🎬 Generate Video Now'
+                    )}
+                  </button>
+                </div>
+                {stats.lastVideoUrl && (
+                  <div className="mt-4 p-3 bg-gray-800/60 rounded-xl border border-gray-700/50">
+                    <p className="text-xs text-gray-500 mb-1">Last upload:</p>
+                    <a href={stats.lastVideoUrl} target="_blank" rel="noreferrer" className="text-indigo-400 text-sm hover:text-indigo-300 transition-colors break-all">
+                      {stats.lastVideoUrl}
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Schedule */}
+              <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/60 rounded-2xl p-6 card-hover">
+                <h2 className="text-base font-semibold text-white mb-1">📅 Upload Schedule (Vercel Cron)</h2>
+                <p className="text-sm text-gray-400 mb-4">
+                  These times are configured in <code className="text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded text-xs">vercel.json</code> and run automatically:
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {['9:00 AM UTC', '11:00 AM UTC', '2:00 PM UTC', '7:00 PM UTC ⭐', '10:00 PM UTC'].map((time, i) => (
+                    <div key={i} className={`flex items-center gap-2 px-3 py-3 rounded-xl border text-sm font-medium transition-all
+                      ${time.includes('⭐')
+                        ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+                        : 'bg-gray-800/60 border-gray-700/40 text-gray-300 hover:bg-gray-800'}`}>
+                      <span className="text-emerald-400 text-xs">📤</span>
+                      <span className="text-xs">{time}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-600 mt-3">⭐ 7 PM UTC = 2 PM EST — peak YouTube engagement time based on research</p>
+              </div>
+            </div>
+          )}
+
+          {/* SETTINGS TAB */}
+          {activeTab === 'settings' && (
+            <div className="slide-up">
+              <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/60 rounded-2xl p-6 space-y-7">
+                <h2 className="text-base font-semibold text-white">⚙️ Automation Settings</h2>
+
+                {/* Videos per day */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">
+                    Videos Per Day: <span className="text-amber-400 font-bold ml-1">{config.videosPerDay}</span>
+                  </label>
+                  <input
+                    type="range" min="1" max="10"
+                    value={config.videosPerDay}
+                    onChange={e => setConfig(prev => ({ ...prev, videosPerDay: parseInt(e.target.value) }))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-600 mt-1.5">
+                    <span>1</span><span>5</span><span>10</span>
+                  </div>
+                </div>
+
+                {/* Upload time */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Preferred Upload Time (UTC)</label>
+                  <select
+                    value={config.preferredTime}
+                    onChange={e => setConfig(prev => ({ ...prev, preferredTime: e.target.value }))}
+                    className="w-full bg-gray-800/80 border border-gray-700/60 text-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
+                  >
+                    {OPTIMAL_TIMES.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-600 mt-1.5">Vercel cron runs 5 times/day — adjust vercel.json for exact control</p>
+                </div>
+
+                {/* Content types */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Content Types</label>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { id: 'storytelling', label: '📖 Storytelling' },
+                      { id: 'dance', label: '💃 Dance' },
+                      { id: 'top5', label: '🏆 Top 5' },
+                    ].map(type => (
+                      <button
+                        key={type.id}
+                        onClick={() => toggleContentType(type.id)}
+                        className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200 btn-press
+                          ${config.contentTypes?.includes(type.id)
+                            ? 'bg-indigo-600/30 border-indigo-500/60 text-indigo-300'
+                            : 'bg-gray-800/60 border-gray-700/40 text-gray-400 hover:border-gray-600'}`}
+                      >
+                        {type.label}
+                        {config.contentTypes?.includes(type.id) && <span className="ml-2 text-indigo-400">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Voice */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Voice</label>
+                  <select
+                    value={config.voiceId}
+                    onChange={e => setConfig(prev => ({ ...prev, voiceId: e.target.value }))}
+                    className="w-full bg-gray-800/80 border border-gray-700/60 text-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+                  >
+                    <option value="Rachel">Rachel (Female, Warm)</option>
+                    <option value="Domi">Domi (Female, Energetic)</option>
+                    <option value="Bella">Bella (Female, Soft)</option>
+                    <option value="Antoni">Antoni (Male, Deep)</option>
+                    <option value="Elli">Elli (Female, Young)</option>
+                  </select>
+                </div>
+
+                {/* Upload toggle */}
+                <div
+                  onClick={() => setConfig(prev => ({ ...prev, uploadEnabled: !prev.uploadEnabled }))}
+                  className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all duration-200
+                    ${config.uploadEnabled
+                      ? 'bg-indigo-600/10 border-indigo-500/30'
+                      : 'bg-gray-800/40 border-gray-700/40 hover:border-gray-600'}`}
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-200">Auto-upload to YouTube</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Uncheck to generate only, without uploading</p>
+                  </div>
+                  <div className={`w-11 h-6 rounded-full transition-all duration-300 relative flex-shrink-0
+                    ${config.uploadEnabled ? 'bg-indigo-600' : 'bg-gray-700'}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-300
+                      ${config.uploadEnabled ? 'left-5.5 translate-x-0.5' : 'left-0.5'}`}
+                      style={{ left: config.uploadEnabled ? '22px' : '2px' }} />
+                  </div>
+                </div>
+
+                <button
+                  onClick={saveConfig}
+                  disabled={loading}
+                  className={`w-full sm:w-auto px-8 py-3 rounded-xl font-semibold text-sm text-white transition-all duration-200 btn-press
+                    bg-gradient-to-r from-indigo-600 to-purple-600 hover:shadow-lg hover:shadow-indigo-500/30
+                    ${loading ? 'opacity-60 cursor-not-allowed' : 'hover:scale-105'}`}
+                >
+                  {loading ? '⏳ Saving...' : '💾 Save Settings'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* JOBS TAB */}
+          {activeTab === 'jobs' && (
+            <div className="slide-up">
+              <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/60 rounded-2xl p-6">
+                <h2 className="text-base font-semibold text-white mb-5">📋 Generation Jobs</h2>
+                {jobs.length === 0 ? (
+                  <div className="text-center py-16">
+                    <div className="text-4xl mb-3">🎬</div>
+                    <p className="text-gray-500 text-sm">No jobs yet. Generate your first video!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {jobs.map((job, i) => (
+                      <div
+                        key={job.id}
+                        className="bg-gray-800/50 border border-gray-700/40 rounded-xl p-4 hover:border-gray-600/60 transition-all duration-200 card-hover"
+                        style={{ animationDelay: `${i * 50}ms` }}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <StatusBadge status={job.status} />
+                          <span className="text-xs text-gray-500">{new Date(job.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p className="text-sm font-medium text-gray-200 mt-2">
+                          {job.title || `${job.type} - ${job.character}`}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Type: <span className="text-gray-400">{job.type}</span> · Character: <span className="text-gray-400">{job.character}</span>
+                        </p>
+                        {job.youtubeUrl && (
+                          <a href={job.youtubeUrl} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+                            ▶ Watch on YouTube
+                          </a>
+                        )}
+                        {job.error && (
+                          <p className="mt-2 text-xs text-red-400 bg-red-900/20 border border-red-500/20 rounded-lg px-3 py-1.5">
+                            {job.error}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* API KEYS TAB */}
+          {activeTab === 'api-keys' && (
+            <div className="slide-up">
+              <div className="bg-gray-900/60 backdrop-blur-sm border border-gray-800/60 rounded-2xl p-6">
+                <h2 className="text-base font-semibold text-white mb-1">🔑 Required API Keys (All Free)</h2>
+                <p className="text-sm text-gray-400 mb-6">Set these in your Vercel dashboard under Settings → Environment Variables</p>
+                <div className="space-y-1">
+                  {[
+                    { name: 'MONGODB_URI', label: 'MongoDB Atlas', desc: 'Free M0 cluster (512MB)', url: 'https://mongodb.com/cloud/atlas', color: 'bg-emerald-500', ring: 'ring-emerald-500/20' },
+                    { name: 'YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET + YOUTUBE_REFRESH_TOKEN', label: 'YouTube Data API v3', desc: 'Free — 10,000 units/day', url: 'https://console.cloud.google.com', color: 'bg-red-500', ring: 'ring-red-500/20' },
+                    { name: 'HUGGINGFACE_API_KEY', label: 'HuggingFace (Image Gen)', desc: 'Free — unlimited (rate limited)', url: 'https://huggingface.co/settings/tokens', color: 'bg-amber-500', ring: 'ring-amber-500/20' },
+                    { name: 'ELEVENLABS_API_KEY', label: 'ElevenLabs TTS', desc: 'Free — 10k chars/month', url: 'https://elevenlabs.io', color: 'bg-violet-500', ring: 'ring-violet-500/20' },
+                    { name: 'OPENROUTER_API_KEY', label: 'OpenRouter (Script Gen)', desc: 'Free tier — Mistral-7B free', url: 'https://openrouter.ai', color: 'bg-cyan-500', ring: 'ring-cyan-500/20' },
+                    { name: 'CRON_SECRET', label: 'Cron Secret', desc: 'Generate: openssl rand -hex 32', url: null, color: 'bg-gray-500', ring: 'ring-gray-500/20' },
+                  ].map((key, i) => (
+                    <div
+                      key={key.name}
+                      className={`flex items-center gap-4 p-4 rounded-xl border border-gray-800/60 hover:border-gray-700/60 hover:bg-gray-800/30 transition-all duration-200 group`}
+                    >
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${key.color} ring-4 ${key.ring}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-200">{key.label}</p>
+                        <code className="text-xs text-amber-400/80 font-mono truncate block mt-0.5">{key.name}</code>
+                        <p className="text-xs text-gray-500 mt-0.5">{key.desc}</p>
+                      </div>
+                      {key.url && (
+                        <a
+                          href={key.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-lg hover:bg-indigo-500/20 hover:text-indigo-300 transition-all duration-200 opacity-0 group-hover:opacity-100"
+                        >
+                          Get Key →
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+        </main>
+      </div>
+    </>
+  );
+}
+
+function StatCard({ label, value, icon, color, iconBg }) {
+  return (
+    <div className={`relative overflow-hidden bg-gradient-to-br ${color} border border-gray-800/60 rounded-2xl p-5 card-hover backdrop-blur-sm`}>
+      <div className="flex items-center gap-4">
+        <div className={`w-12 h-12 ${iconBg} rounded-2xl flex items-center justify-center text-2xl flex-shrink-0`}>
+          {icon}
+        </div>
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">{label}</p>
+          <p className="text-2xl font-bold text-white mt-0.5">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeaderStat({ label, value, color }) {
+  return (
+    <div className="text-center">
+      <p className="text-xs text-gray-600 uppercase tracking-wider">{label}</p>
+      <p className={`text-sm font-bold mt-0.5 ${color || 'text-gray-200'}`}>{value}</p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const styles = {
+    completed: 'bg-emerald-900/50 text-emerald-400 border-emerald-500/30',
+    processing: 'bg-blue-900/50 text-blue-400 border-blue-500/30',
+    pending: 'bg-gray-800/80 text-gray-400 border-gray-600/30',
+    failed: 'bg-red-900/50 text-red-400 border-red-500/30',
+  };
+  const dots = {
+    completed: 'bg-emerald-400',
+    processing: 'bg-blue-400 animate-pulse',
+    pending: 'bg-gray-400',
+    failed: 'bg-red-400',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold ${styles[status] || styles.pending}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dots[status] || dots.pending}`} />
+      {status}
+    </span>
+  );
+}
