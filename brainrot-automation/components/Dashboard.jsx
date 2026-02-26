@@ -32,7 +32,10 @@ export default function Dashboard() {
         fetch('/api/jobs'),
         fetch('/api/stats'),
       ]);
-      if (configRes.ok) setConfig(prev => ({ ...prev, ...(await configRes.json()) }));
+      if (configRes.ok) {
+        const cfg = await configRes.json();
+        setConfig(prev => ({ ...prev, ...cfg }));
+      }
       if (jobsRes.ok) {
         const data = await jobsRes.json();
         setJobs(data.jobs || []);
